@@ -153,6 +153,17 @@
                     </div>
                 @endif
                 
+                @if($errors->any())
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-circle me-2"></i>
+                        <ul class="mb-0">
+                            @foreach($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+                
                 <div class="credentials-hint">
                     <i class="bi bi-info-circle me-1"></i>
                     <strong>Default credentials:</strong><br>
@@ -167,7 +178,7 @@
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-person"></i></span>
                             <input type="text" class="form-control" id="username" name="username" 
-                                   placeholder="Enter username" required autofocus>
+                                   placeholder="Enter username" value="{{ old('username') }}" required autofocus>
                         </div>
                     </div>
                     

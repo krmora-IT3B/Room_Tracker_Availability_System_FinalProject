@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LoginHistory;
 use App\Models\Room;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class AdminController extends Controller
 {
@@ -21,35 +24,81 @@ class AdminController extends Controller
 
     /**
      * Handle admin login.
+     * Uses secure password hashing and SQL injection prevention via Eloquent ORM.
      */
     public function login(Request $request)
     {
+        // Validate input
         $request->validate([
-            'username' => 'required',
-            'password' => 'required',
+            'username' => 'required|string|max:255',
+            'password' => 'required|string',
         ]);
 
-        // Simple admin credentials (you can change these)
-        $adminUsername = 'admin';
-        $adminPassword = 'admin123';
+        // Get request info for logging
+        $ipAddress = $request->ip();
+        $userAgent = $request->userAgent();
 
-        if ($request->username === $adminUsername && $request->password === $adminPassword) {
-            session(['admin_logged_in' => true]);
-            session(['admin_username' => $request->username]);
-            return redirect()->route('admin.dashboard')->with('success', 'Welcome back, Admin!');
+        // Query the database for the user by username
+        // Eloquent ORM automatically prevents SQL injection through parameter binding
+        $user = User::where('username', $request->username)->first();
+
+        // Check if user exists, password matches (using secure hash comparison), and has admin role
+        if ($user && Hash::check($request->password, $user->password) && $user->isAdmin()) {
+            // Log successful login to database
+            LoginHistory::logSuccess($user, $ipAddress, $userAgent);
+            
+            // Regenerate session ID to prevent session fixation attacks
+            $request->session()->regenerate();
+            
+            // Store admin session data
+            session([
+                'admin_logged_in' => true,
+                'admin_user_id' => $user->id,
+                'admin_username' => $user->username,
+                'admin_name' => $user->name,
+            ]);
+            
+            return redirect()->route('admin.dashboard')
+                ->with('success', 'Welcome back, ' . $user->name . '!');
         }
 
-        return back()->with('error', 'Invalid username or password.');
+        // Determine failure reason for logging
+        $failureReason = 'Invalid credentials';
+        if ($user && !$user->isAdmin()) {
+            $failureReason = 'User is not an admin';
+        } elseif ($user && !Hash::check($request->password, $user->password)) {
+            $failureReason = 'Incorrect password';
+        } elseif (!$user) {
+            $failureReason = 'User not found';
+        }
+
+        // Log failed login attempt to database
+        LoginHistory::logFailure($request->username, $ipAddress, $userAgent, $failureReason);
+
+        // Invalid credentials - use generic message to prevent username enumeration
+        return back()
+            ->withInput($request->only('username'))
+            ->with('error', 'Invalid username or password.');
     }
 
     /**
      * Handle admin logout.
      */
-    public function logout()
+    public function logout(Request $request)
     {
-        session()->forget('admin_logged_in');
-        session()->forget('admin_username');
-        return redirect()->route('admin.login')->with('success', 'You have been logged out.');
+        // Clear admin session data
+        session()->forget([
+            'admin_logged_in',
+            'admin_user_id',
+            'admin_username',
+            'admin_name',
+        ]);
+        
+        // Invalidate and regenerate session for security
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+        
+        return redirect()->route('admin.login')->with('success', 'You have been logged out successfully.');
     }
 
     /**
